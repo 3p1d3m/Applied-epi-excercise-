@@ -1,0 +1,557 @@
+---
+title: "Covid-19 confirmed cases weekly report (applied epi skill test)"
+author: "Berhe Tesfay"
+date: '2022-04-07'
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+```{r setup,include=FALSE,  results='hide', message=FALSE, warning=FALSE}
+## hide all code chunks in the output, but show errors
+knitr::opts_chunk$set(echo = FALSE,       # hide all code chunks in output
+                      error = TRUE,       # show errors if they appear, but don't stop
+                      fig.width = 6*1.25, # Figure width
+                      fig.height = 6,      # Figure height
+                      warning = FALSE,
+                      message = FALSE
+                     )
+
+## set the environment TZ
+Sys.setenv(TZ='GMT')
+
+## Installing required packages for this template
+required_packages <- c("knitr", # create output docs
+                       
+                       "here",        # find your files
+                       "janitor",
+                       "flextable",
+                       "dplyr",       # clean/shape data
+                       "forcats",     # clean/shape data
+                       "stringr",     # clean text
+                       "rio",         # read in data
+                       "ggplot2",     # create plots and charts
+                       "patchwork",   # combine plots in one
+                       "linelist",    # Functions for cleaning/standardising data/dates
+                       "matchmaker",  # dictionary-based standardization of variables
+                       "incidence",   # create epicurves
+                       "aweek",       # define epi weeks
+                       "epitrix",     # epi helpers and tricks
+                       "sf",          # encode spatial vector data
+                       "ggspatial",   # plot maps
+                       "mondate",
+                       "xts",         # moving \naverages
+                       "zoo",         # moving \naverages
+                       "classInt",    # specifying breaks for maps
+                       "excel.link",  # opening password protected files
+                       "askpass",     # opening password protected files
+                       "tsibble",     # time series data
+                       "slider",      # time series data
+                       "tidyr",       # long/long adjustments to data
+                       "gtsummary",  # make nice tables
+                       "data.table",   # for taking last and first values from data frames
+                       "patchwork",   # combining plots together
+                       "TTR",        # calculate the moving average
+                       "anytime",     # POSIX Date converter
+                       "matrixStats", # standard deviation matrix calculator 
+                       "tmaptools",   # for getting geocoordinates (lon/lat) based on place names
+                       "ISOweek",
+                       "growthrates",
+                       "glue",
+                       "ggplot2",
+                       "scales",
+                       "gridExtra",
+                       "ggpubr",
+                       "grid",
+                       "sandwich",
+                       "rgeos",
+                       "countrycode",
+                       "officer",
+                       "gt",
+                       "webshot",
+                       "english",
+                       "ggthemes",
+                       "purrr",
+                       "readxl",
+                       "readr",
+                       "broom",
+                       "tidyverse",
+                       "lmtest",
+                       "parameters",
+                       "see", 
+                       "sitrep", # a package for outbreak analysis
+                       "skimr") # skim the whole data set to start data cleaning abd after data cleaning
+for (pkg in required_packages) {
+  # install packages if not already present
+  if (!pkg %in% rownames(installed.packages())) {
+    install.packages(pkg)
+  }
+  
+  # load packages to this current session 
+  library(pkg, character.only = TRUE)
+}
+
+# set epi curve theme
+
+epicurve_theme <- theme_classic() +
+  theme(
+    ## set the size for text 
+    text = element_text(size = 12),
+    legend.title=element_blank(),
+    ## colour and size the grid lines in the plot 
+    panel.grid.major = element_line(colour = "grey44",linetype = 3 ,size=1.0), 
+    panel.grid.minor = element_line(colour = "grey44",linetype = 3, size =1.0), 
+    ## add space between faceted plots (axis labels run in to each other)
+    panel.spacing = unit(1, "lines"), 
+    ## rotate x axis labels
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1,size=10),
+   ## set the legend position
+   legend.position = ("bottom"),
+   legend.direction = ("horizontal")
+  )
+
+#devtools::install_github("crsh/citr") # insert citations thriugh addins
+
+```
+
+
+```{r fix the reprt period and the cut of weeks}
+# Set the left and right censoring for date of consultation. 
+# Remove the epi-weeks earlier than week 01/2020 as some of the dates are wrong
+covid_start_week<- yearweek("2020 W01")
+
+```
+
+
+```{r import data}
+setwd("C:/Users/berhe.tesfay/Desktop/Applied epi Application") # this is automatically created when you create your project 
+# every thing is saved to the R-project folder with unique name and R gets it through the working directory
+covid_fake_dat<-read_excel("covid_example_data.xlsx")
+
+```
+
+<!-------Skim the data fo start the data cleaning---------------->
+
+```{r data exploration and cleaning}
+# Skim the data to see all they
+     #skim(covid_fake_dat)
+
+# Also use the summary () almost the same out put but less structured 
+      #summary(covid_fake_dat)
+```
+
+<!-------------clean the data------------------->
+
+# Introduction
+
+This analysis is a s sample analysis form a fake  covid-19 data for skill test.Neither the county mentioned here nor the data is realistic. 
+there were a total of `r nrow(covid_fake_dat)` COVID-19 consultations in Fulton county of the united states between `r covid_start_week` and the date of reporting. Total number of confirmed cases reported were `r fmt_count(covid_fake_dat, covid_dx == "Confirmed")`.
+
+```{r clean data for further analysis}
+# check for duplicated cases(Cases PID seems the unique identifier)
+   #duplicated(covid_fake_dat$case_PID) # this shows no duplicates (considering this as unique ID)
+
+#1,this data doesn't have a dictionary so some of the variables  will be only assumed as they are not clear 
+ ## clean the dates
+ covid_fake_dat<-covid_fake_dat %>%
+  mutate(date_onset=as.Date(sym_startdt_FALSE)) %>% 
+  mutate(date_test_positive=as.Date(pos_sampledt_FALSE)) %>% 
+  mutate(admission_date=as.Date(hosp_admidt_FALSE)) %>% 
+  mutate(discharge_date=as.Date(hosp_dischdt_FALSE)) %>% 
+  mutate(date_death=as.Date(died_dt_FALSE))
+ 
+# in some cases we have the date of death but the date of admission is mission. so mutate the missing date of discharge as same as date of death.
+
+# OR
+       #covid_fake_dat<-covid_fake_dat %>% 
+           #mutate(discharge_date = ifelse(is.na(discharge_date, date_death, discharge_date)))
+# OR
+       #covid_fake_dat<-covid_fake_dat %>% 
+       #ifelse(is.na( covid_fake_dat$discharge_date), covid_fake_dat$date_death,  covid_fake_dat$discharge_date)
+# OR
+        #covid_fake_dat$discharge_date[is.na( covid_fake_dat$discharge_date)] <-  covid_fake_dat$date_death[is.na( #covid_fake_dat$discharge_date)]
+
+# calculate the delay for health seeking behavior by calculating the delay for testing
+       covid_fake_dat<-covid_fake_dat %>% 
+          ## to include only the symptomatic cases (filter=="Symptomatic")
+           dplyr::filter(Contact_id=="Yes-Symptomatic") %>% 
+         ## calculate the date difference as number between data symptom start and date taste positive
+           mutate(delay_in_detection=as.numeric(date_test_positive-date_onset))
+         ## drop the negative values as the dealy cn not be retrospective and there is codding eror on the date
+
+# calculate the length of admission for those hospitalized
+       covid_fake_dat<-covid_fake_dat %>% 
+         ## to include only the symptomatic cases (filter=="Symptomatic")
+          dplyr::filter(hospitalized=="Yes") %>% 
+          ## calculate the date difference as number between data symptom start and date taste positive
+           mutate(length_admission=as.numeric(discharge_date-admission_date)) 
+# calculate the length of days between admission and date of death
+        covid_fake_dat<-covid_fake_dat %>% 
+         ## to include only the symptomatic cases (filter=="Symptomatic")
+          #dplyr::filter(died=="Yes" & died_covid=='Yes') %>% 
+          ## calculate the date difference as number between data symptom start and date taste positive
+           mutate(length_to_death=as.numeric(date_death-admission_date)) 
+       
+# Age of patient is not specified either in years or months (Assume this is in years)
+# Then create age categories according to the WHO age category for COVID-19
+## categorize  data Age 
+covid_fake_dat<-covid_fake_dat %>% 
+## age group for Continent wise analysis based on MSF Analysis plan
+mutate(`Age group`=case_when(
+# criteria                  # new value
+case_age<2 ~"0-1 yrs",
+case_age>=2 & case_age <5  ~"2-4 yrs",
+case_age>=5 & case_age <15 ~"5-14 yrs",
+case_age>=15 & case_age<30 ~"15-29 yrs",
+case_age>=30 & case_age<40 ~"30-39 yrs",
+case_age>=40 & case_age<50 ~"40-49 yrs",
+case_age>=50 & case_age<60 ~"50-59 yrs",
+case_age>=60 & case_age<70 ~"60-69 yrs",
+case_age>=70 & case_age<80 ~"70-79 yrs",
+case_age>=80 ~ "80+ yrs",
+is.na(case_age) ~ NA_character_)) %>% 
+#Mutate Gender
+mutate(gender=case_gender) %>% 
+mutate(race=case_race) %>% 
+mutate(ethnicity=case_eth) %>% 
+
+## Mutate the signs and symptoms
+#create variable fever (based on the thermometer measurement)
+mutate(measured_fever=sym_fever) %>% 
+ mutate(measured_fever=factor(measured_fever,levels=list('Yes',
+                                   'No',
+                                    NA_character_))) %>% 
+## Subjective fever (Based on the complain of the patient)
+  mutate(subjective_fever=sym_subjfever) %>% 
+ mutate(subjective_fever=factor(subjective_fever,levels=list('Yes',
+                                   'No',
+                                    NA_character_))) %>% 
+## create variable cough
+mutate(cough=sym_cough) %>% 
+ mutate(cough=factor(cough,levels=list('Yes',
+                                   'No',
+                                    NA_character_))) %>% 
+## create variable myalgia
+mutate(myalgia=sym_myalgia) %>% 
+ mutate(myalgia=factor(myalgia,levels=list('Yes',
+                                   'No',
+                                    NA_character_))) %>%   
+  
+## lose smell and taste
+mutate(anosmia_agusia=sym_losstastesmell) %>% 
+ mutate(anosimia_ageusia=factor(anosmia_agusia,levels=list('Yes',
+                                   'No',
+                                    NA_character_))) %>%  
+## Sore throat
+mutate(sorethroat=sym_sorethroat) %>% 
+ mutate(sorethroat=factor(sorethroat,levels=list('Yes',
+                                   'No',
+                                    NA_character_))) %>%   
+  
+## headache
+ mutate(headache=sym_headache) %>% 
+ mutate(headache=factor(headache,levels=list('Yes',
+                                   'No',
+                                    NA_character_))) 
+```
+
+```{r prepare data for inline text}
+male_to_female_Ratio<-covid_fake_dat %>% 
+         mutate(male_female=(sum(covid_fake_dat$gender=="Male"))/(sum(covid_fake_dat$gender=="Female")))
+Medain_age<-covid_fake_dat %>% dplyr::select(case_age) %>% tbl_summary(statistic = all_continuous()~c("{median}, {mean},IQR ({p25}-{p75}"))
+
+
+```
+
+# Socio demographics 
+The number of female and male patients were `r fmt_count(covid_fake_dat, gender == "Male")` and `r fmt_count(covid_fake_dat, gender == "Female")`. The medain, mean and IQR of age of patients was `r inline_text(Medain_age, variable='case_age')` years. 
+
+
+```{r crate summary variables for plot}
+## Create epidemiological week of date of onset 
+   covid_fake_dat<-covid_fake_dat %>% 
+     mutate (epiweek=yearweek(date_onset)) %>% 
+# filter epiweek to 2020 and later to drop the wrong dates from the 1950s and 80s
+     filter(epiweek>=covid_start_week)
+
+## create long data set 
+weekly_cases<-covid_fake_dat %>% 
+  select(epiweek, race, ethnicity, died,died_covid) %>% 
+  group_by(epiweek,race,ethnicity,died,died_covid) %>% 
+  tally() 
+  
+## create moving average of the confirmed cases  
+weekly_2ma<-covid_fake_dat %>% 
+  group_by(epiweek) %>% 
+  tally() %>%  
+  mutate(two_week_ma=round(slide_dbl(n, ~mean(.x, na.rm = TRUE),
+                                          .before = 3 ), 
+                                digits = 0))
+
+##create moving average grouped by gender,race, ethnicity
+weekly_2ma_gender<-covid_fake_dat %>% 
+  group_by(epiweek,gender,race,ethnicity) %>% 
+  tally() %>%  
+  mutate(two_week_ma=round(slide_dbl(n, ~mean(.x, na.rm = TRUE),
+                                          .before = 3 ), 
+                                digits = 0))
+
+```
+
+## Epicurve of case per epidemiological week 
+
+```{r age sex pyramid, fig.height=7, fig.width=14,fig.cap='Age sex pyramid of confirmed covid-19 patienys, from fake data'}
+
+## plot the age sex pyramid
+# first change age group in to factor
+covid_fake_dat$`Age group`<-as.factor(covid_fake_dat$`Age group`)
+# then plot the age sex pyramid
+ age_sex_pyramid<-plot_age_pyramid(covid_fake_dat,
+                                    age_group ="Age group", 
+                                    split_by = "gender",
+                                    na.rm = TRUE)+
+                                    # exclude missing values
+  labs(y = "Cases (n)", x = "Age group") + # change axis  labels
+  theme(legend.position = "right",     # move legend to bottom
+        legend.title = element_blank(), # remove title
+        text = element_text(size = 14),  # change text size
+        plot.title = element_text(size = 16)) +
+  ggtitle(paste0("Age sex pyramid of cases from fake covid data"))
+
+ 
+ ## alternatively
+ missing_age_sex <- covid_fake_dat %>% summarise(age = sum(is.na(case_age)), sex = sum(is.na(gender)))
+
+tbl_pyramid_confirmed_Continent <- covid_fake_dat %>% 
+  drop_na(gender, case_age)%>% 
+  dplyr::count( gender, `Age group`) %>% 
+  mutate(n = if_else(gender == "Male", -n, n))
+
+figure1 <- ggplot(tbl_pyramid_confirmed_Continent, aes(x = `Age group`, y = n, fill = gender)) +
+  #facet_wrap(~Continent, ncol = 2, scales = "free_x") +
+  geom_col() +
+  geom_hline(yintercept = 0, colour = "black") +
+  geom_text(aes(label = abs(n), hjust = if_else(n >= 0, 1.1, -0.1)), colour = "white", size = 4) +
+  coord_flip() +
+  scale_fill_manual(name = NULL, values = c("#FF007F", "blue","red1"), breaks = c("Male", "Female",""), labels = c("Males", "Females","")) +
+  #scale_y_continuous(label = abs, limits = pyramid_limits) + 
+  theme(legend.position = "bottom") +
+  labs(x = "Age group",size=10, y = "Confirmed and admitted Patients", caption = glue::glue("Missing Data: Age {missing_age_sex$age}, Sex {missing_age_sex$sex}"))+ 
+  theme(axis.text = element_text(size = 10))+
+  theme(axis.title = element_text(size = 10))+
+ggtitle(paste0("Age sex pyramid of cases from fake covid data"))
+
+```
+
+
+
+```{r plot fill by gender, fig.width=14, fig.height=7,fig.cap="Number of confirmed cases and two weeks moving average"}
+
+epi_curve<-ggplot() +
+  geom_col(data = weekly_cases, 
+           aes(x = epiweek, 
+               y = n, 
+               fill = died)) +
+## add two week moving \naverage
+  geom_line(data = weekly_2ma,
+            aes(x = epiweek, 
+                y = two_week_ma, colour = " 2 moving \naverage of ll cases"),
+            size = 1.4)+
+  scale_colour_manual( values = c("2 moving \naverage of ll cases" = "gray"))+
+
+## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90)) +
+  theme(legend.position = "bottom", # move legend to bottom
+        #legend.title = element_blank(), # remove title
+        text = element_text(size = 14),
+        plot.title = element_text(size = 16))+  # change text size
+  labs(title = "weely number of cases and biweely movng average",
+       x = "epiweek",
+       y = " Total number of cases",
+       fill = " All deaths",
+       colour = "")+
+   scale_x_yearweek(date_breaks = "3 month", date_minor_breaks = "2 week",
+             date_labels = "W%W")+
+theme(legend.direction = "vertical",
+legend.box = "horizontal")
+
+
+## Died because of covid
+epi_curve_died_covid<-ggplot() +
+  geom_col(data = weekly_cases, 
+           aes(x = epiweek, 
+               y = n, 
+               fill = died_covid)) +
+## add two week moving \naverage
+  geom_line(data = weekly_2ma,
+            aes(x = epiweek, 
+                y = two_week_ma, colour = " 2 moving \naverage of ll cases"),
+            size = 1.4)+
+  scale_colour_manual( values = c("2 moving \naverage of ll cases" = "gray"))+
+
+## rotate x axis text
+  theme(axis.text.x = element_text(angle = 90)) +
+  theme(legend.position = "bottom", # move legend to bottom
+        #legend.title = element_blank(), # remove title
+        text = element_text(size = 14),
+        plot.title = element_text(size = 16))+  # change text size
+  labs(title = "weely number of cases and biweely movng average",
+       x = "epiweek",
+       y = " Total number of cases",
+       fill = "Covid Death",
+       colour = "")+
+   scale_x_yearweek(date_breaks = "3 month", date_minor_breaks = "2 week",
+             date_labels = "%d %b %Y\n(W%W)")+
+theme(legend.direction = "vertical",
+legend.box = "horizontal")
+
+
+
+
+## combine the two plots 
+epi_curve  +epi_curve_died_covid + figure1
+ 
+```
+
+
+
+
+# Signs and symptoms
+The commonest signs and symptoms among the confirmed cases was cough `r fmt_count(covid_fake_dat, cough == "Yes")` followed by fever `r fmt_count(covid_fake_dat, measured_fever == "Yes")` and Myalgia `r fmt_count(covid_fake_dat, myalgia == "Yes")`(Table 1). 
+
+
+```{r summary of signs and symptoms}
+ssymptoms<-covid_fake_dat %>% 
+  select(subjective_fever, measured_fever,cough,sorethroat,anosmia_agusia,myalgia,headache, gender) %>% 
+  tbl_summary(by=gender,
+              missing='no',
+             statistic=all_categorical()~c("{n}/{N}({p}%)"),
+             value = list(subjective_fever~"Yes",
+                          measured_fever~"Yes",
+                          cough~"Yes",
+                          sorethroat~"Yes",
+                          anosmia_agusia~"Yes",
+                          myalgia~"Yes",
+                          headache~"Yes"),
+             label = list(subjective_fever~"Subjective fever",
+                          measured_fever~"Measured fever",
+                          cough~"Cough",
+                          sorethroat~"Sore throat",
+                          anosmia_agusia~"Anosmia/Ageusia",
+                          myalgia~"Myalgia",
+                          headache~"Headaceh")) %>% 
+  add_n() %>% 
+  add_overall(last=T) %>% 
+  modify_caption("Signs and symptoms of patienst, from fake covid data")
+   theme_gtsummary_compact()
+   theme_gtsummary_journal()
+   theme_gtsummary_printer(print_engine = "flextable")
+ssymptoms 
+``` 
+# Cases by ethnicity and race
+
+Majority race of the patients were black and Non-Hispanic/Latinos take (figure 2). 
+
+```{r plot cases by race and ethinicity, fig.height 7}
+x<-ggplot(data = weekly_cases,
+       aes(x=epiweek,
+           y=n)) +
+  geom_col(fill='blue')+
+  geom_line(data = weekly_2ma_gender,
+            aes(x=epiweek,
+                y=two_week_ma,colour = "moving \naverage"),
+            size = 1.2)+
+  facet_wrap(race ~ ethnicity,nrow=4, scales = "free_x")+ 
+  #facet_grid(race ~ ethnicity, scales = "free_x")+ 
+  labs(title = "Number of confirmed COVID-19 patients by epidemiological week",
+       x = "Week",
+       y = "Number of confirmed cases and 2 moving avrage of all cases",
+       fill = "Gender")+
+  epicurve_theme
+```
+
+
+```{r fill the plots by race, ethnicty and covid mortality}
+ggplot()+
+  geom_col(data = weekly_cases, 
+           aes(x = epiweek, 
+               y = n, 
+               fill = died_covid)) +
+## add four week moving \naverage
+  facet_grid(race ~ ethnicity, scales = "free_x")+
+  scale_colour_manual( values = c("2 moving \naverage" = "green1"))+
+  labs(title = "Number of confirmed COVID-19 patients by race and ethnicity",
+       x = "Week",
+       y = "Total confirmed cases for each strata",
+       fill = "Covid death")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1,size=8),
+        strip.text.y = element_text(size = 6, colour = "red1", angle = 90),
+        strip.text.x = element_text(size = 8, colour = "blue"))
+  
+```
+
+
+
+# Location of cases(heatmaps)
+
+
+```{r plot heat map}
+
+library(tidyverse)
+library(stringr)
+library(sf)
+library(leaflet)
+library(maps)
+# the sf is saved to the project folder and can easily be imported using the read_sf package
+map_fulton_county_raw <- read_sf("FultonCountyZipCodes.shp") %>% 
+# clean anmes 
+janitor::clean_names()
+
+
+## check the coordinate reference system (CRS)
+   # st_crs(map_fulton_county_raw)
+
+## if CRS not WGS84, reset it WGS84
+     map_fulton_county_raw <- st_set_crs(map_fulton_county_raw, value = 4326) # Sets to WGS84
+
+# change the sf to data frame
+    map_fulton_county_raw<-map_fulton_county_raw %>% 
+# create variable for joinging
+    mutate(case_zip=zip_code)
+
+# create summary data of the covid case 
+    covid_fake_dat$case_zip<-as.character(covid_fake_dat$case_zip)
+    
+   covid_fake_dat_confirmed<-covid_fake_dat %>% 
+     filter(covid_dx=="Confirmed") %>% 
+     group_by(case_zip) %>% 
+      tally()
+# mutate the merging variable in to character
+  
+
+# join the two data sets
+    map_joined<-left_join(covid_fake_dat_confirmed,map_fulton_county_raw, by='case_zip')
+
+map_joined<-st_as_sf(map_joined)
+
+mab_joined<-st_set_crs(map_joined, value = 4326) # Sets to WGS84
+
+```
+ 
+
+```{r plot the heat map}
+
+map<- ggplot() +    ## add in the back ground tiles
+  geom_sf(data = map_joined, aes(fill = (n))) +  # needed to avoid gridlines being drawn
+  coord_sf(datum = NA) +  # add a scalebar
+  annotation_scale()
+map+
+scale_fill_continuous(name="All Confirmed cases", 
+            low = "lightgreen", high = "darkgreen",
+            limits = c(0,250), 
+            breaks=c(0,50,100,150,200), na.value = "grey50") +
+
+          labs(title="Total number of confirmed cases of COVID-19 in \nFilton county united sates bewtween date x and y, from fake covid data")
+
+```
+
